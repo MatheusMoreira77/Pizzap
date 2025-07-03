@@ -34,10 +34,8 @@ class BancoDeDados:
                 cep TEXT NOT NULL CHECK(length(cep) == 8),
                 logradouro TEXT NOT NULL,
                 numero TEXT NOT NULL,
+                tipo_residencia TEXT NOT NULL CHECK(tipo_residencia IN ('Casa', 'Apartamento', 'Condomínio')),
                 complemento TEXT,
-                bairro TEXT NOT NULL,
-                cidade TEXT NOT NULL,
-                uf TEXT NOT NULL CHECK(length(uf) == 2),
                 FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
             )
             ''',
@@ -144,52 +142,92 @@ class BancoDeDados:
                 conn.commit()
 
     # --- CLIENTES ---
-    def cadastrar_cliente(self, nome: str, telefone: str) -> bool:
-        try:
-            with self._conectar() as conn:
-                conn.execute(
-                    "INSERT INTO clientes (nome, telefone) VALUES (?, ?)",
-                    (nome.strip(), ''.join(filter(str.isdigit, telefone)))
-                )
-                conn.commit()
-                return True
-        except sqlite3.IntegrityError:
-            return False
-        except sqlite3.Error as e:
-            print(f"Erro ao cadastrar cliente: {e}")
-            return False
+def cadastrar_cliente(self, nome: str, telefone: str) -> bool:
+    """Cadastra um novo cliente"""
+    try:
+        with self._conectar() as conn:
+            conn.execute('''
+            INSERT INTO clientes (nome, telefone)
+            VALUES (?, ?)
+            ''', (nome.strip(), ''.join(filter(str.isdigit, telefone))))
+            conn.commit()
+            return True
+    except sqlite3.IntegrityError:
+        return False  # Telefone já existe
+    except Exception as e:
+        print(f"Erro ao cadastrar cliente: {e}")
+        return False
+
+def buscar_cliente(self, telefone: str) -> Optional[Dict]:
+    """Busca cliente pelo telefone"""
+    try:
+        with self._conectar() as conn:
+            cursor = conn.execute('''
+            SELECT id, nome FROM clientes WHERE telefone = ?
+            '''), (''.join(filter(str.isdigit, telefone)),)
+            resultado = cursor.fetchone()
+            return dict(resultado) if resultado else None
+    except Exception as e:
+        print(f"Erro ao buscar cliente: {e}")
+        return None
 
     def buscar_cliente(self, telefone: str) -> Optional[Dict]:
+        """
+        Busca um cliente pelo telefone.
+        
+        Args:
+            telefone: Número de telefone do cliente
+            
+        Returns:
+            Dicionário com os dados do cliente ou None se não encontrado
+        """
         try:
             with self._conectar() as conn:
-                cursor = conn.execute(
-                    "SELECT * FROM clientes WHERE telefone = ?",
-                    (''.join(filter(str.isdigit, telefone)),)
-                )
-                return dict(cursor.fetchone()) if cursor.fetchone() else None
+                cursor = conn.execute('''
+                SELECT * FROM clientes WHERE telefone = ?
+                ''', (''.join(filter(str.isdigit, telefone)),))
+                resultado = cursor.fetchone()
+                return dict(resultado) if resultado else None
         except sqlite3.Error as e:
             print(f"Erro ao buscar cliente: {e}")
             return None
 
     # --- ENDEREÇOS ---
     def adicionar_endereco(self, cliente_id: int, apelido: str, cep: str, 
-                         logradouro: str, numero: str, complemento: str,
-                         bairro: str, cidade: str, uf: str) -> bool:
+                        logradouro: str, numero: str, tipo_residencia: str, 
+                        complemento: str = None) -> bool:
+        """
+        Adiciona um novo endereço para um cliente
+        
+        Args:
+            cliente_id: ID do cliente
+            apelido: Nome de referência (ex: Casa, Trabalho)
+            cep: CEP (8 dígitos)
+            logradouro: Nome da rua/avenida
+            numero: Número do endereço
+            tipo_residencia: 'Casa', 'Apartamento' ou 'Condomínio'
+            complemento: Opcional (ex: "Bloco 2 Apt 301")
+            
+        Returns:
+            True se cadastrado com sucesso, False caso contrário
+        """
         try:
             with self._conectar() as conn:
                 conn.execute('''
                 INSERT INTO enderecos 
-                (cliente_id, apelido, cep, logradouro, numero, complemento, bairro, cidade, uf)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (cliente_id, apelido, cep, logradouro, numero, tipo_residencia, complemento)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    cliente_id, apelido, cep, logradouro, numero, 
-                    complemento, bairro, cidade, uf
+                    cliente_id, apelido, cep, logradouro, 
+                    numero, tipo_residencia, complemento
                 ))
                 conn.commit()
                 return True
         except sqlite3.Error as e:
             print(f"Erro ao adicionar endereço: {e}")
             return False
+
+
 
     def listar_enderecos(self, cliente_id: int) -> List[Dict]:
         try:
@@ -369,3 +407,22 @@ class BancoDeDados:
         except sqlite3.Error as e:
             print(f"Erro ao atualizar status: {e}")
             return False
+    def buscar_pizzas(self, apenas_disponiveis: bool = True) -> List[Dict]:
+        """Busca todas as pizzas disponíveis no cardápio."""
+        try:
+            with self._conectar() as conn:
+                query = '''
+                SELECT p.id, p.nome, p.descricao, p.ingredientes, 
+                    c.nome as categoria, p.disponivel
+                FROM pizzas p
+                JOIN categorias c ON p.categoria_id = c.id
+                '''
+                if apenas_disponiveis:
+                    query += ' WHERE p.disponivel = 1'
+                query += ' ORDER BY c.nome, p.nome'
+                
+                cursor = conn.execute(query)
+                return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            print(f"Erro ao buscar pizzas: {e}")
+            return []
